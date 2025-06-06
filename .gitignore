@@ -1,0 +1,5 @@
+.env
+.vscode
+*.txt
+go.*
+answer
