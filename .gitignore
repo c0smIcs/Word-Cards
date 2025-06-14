@@ -1,5 +1,6 @@
 .env
 .vscode
 *.txt
-go.*
-answer
+service
+.bin
+
