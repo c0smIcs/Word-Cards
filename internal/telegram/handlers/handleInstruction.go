@@ -1,8 +1,8 @@
 package handlers
 
 import (
-	"github.com/cOsm1cs/World-Cards-master/answer"
-	"github.com/cOsm1cs/World-Cards-master/logger"
+	answer "github.com/cOsm1cs/World-Cards-master/internal/telegram/service"
+	"github.com/cOsm1cs/World-Cards-master/internal/logger"
 	tele "gopkg.in/telebot.v4"
 )
 

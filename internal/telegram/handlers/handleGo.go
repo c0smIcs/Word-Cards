@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cOsm1cs/World-Cards-master/answer"
-	"github.com/cOsm1cs/World-Cards-master/logger"
+	answer "github.com/cOsm1cs/World-Cards-master/internal/telegram/service"
+	"github.com/cOsm1cs/World-Cards-master/internal/logger"	
 	tele "gopkg.in/telebot.v4"
 )
 
@@ -41,30 +41,54 @@ func HandleGo(c tele.Context) error {
 	stateMutex.Lock()
 	defer stateMutex.Unlock()
 
-	// userID - ключ, userAdded - значение (список слов), ok - есть ли такой ключ
-	userAdded, ok := userWordPairs[userID]
-	if !ok || len(userAdded) == 0 {
+	pairs := getUserWordPairs(userID)
+	if len(pairs) == 0 {
 		return logger.SendWithLogError(c, answer.HandleGoNotAddWorks)
 	}
 
-	allPairs := make([]WordPair, len(userAdded))
-	copy(allPairs, userAdded)
-	rand.NewSource(time.Now().UnixNano())
-	rand.Shuffle(len(allPairs), func(i, j int) {
-		allPairs[i], allPairs[j] = allPairs[j], allPairs[i]
-	})
-
-	state := &QuizState{
-		WordPairs:    allPairs,
-		CurrentIndex: 0,
+	shuffledPairs, err := shuffleWordPairs(pairs)
+	if err != nil {
+		return err
 	}
+
+	state, err := createQuizState(shuffledPairs)
+	if err != nil {
+		return err
+	}
+
 	userStates[userID] = state
 
-	if len(allPairs) > 0 {
-		return logger.SendWithLogError(c, allPairs[0].Original)
+	if len(shuffledPairs) > 0 {
+		return logger.SendWithLogError(c, shuffledPairs[0].Original)
 	}
 
 	return logger.SendWithLogError(c, "Больше нет слов")
+}
+
+func getUserWordPairs(userID int64) []WordPair {
+	return userWordPairs[userID]
+}
+
+func shuffleWordPairs(pairs []WordPair) ([]WordPair, error) {
+	if len(pairs) == 0 {
+		return nil, nil
+	}
+
+	shuffled := make([]WordPair, len(pairs))
+	copy(shuffled, pairs)
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	r.Shuffle(len(shuffled), func(i, j int) {
+		shuffled[i], shuffled[j] = shuffled[j], shuffled[i] 
+	})
+
+	return shuffled, nil
+}
+
+func createQuizState(pairs []WordPair) (*QuizState, error) {
+	return &QuizState{
+		WordPairs: pairs,
+		CurrentIndex: 0,
+	}, nil
 }
 
 // HandleText обрабатывает ответы пользователя в викторине по переводу слов.
@@ -72,12 +96,12 @@ func HandleGo(c tele.Context) error {
 // При завершении викторины очищает состояние пользователя и предлагает начать заново.
 func HandleText(c tele.Context) error {
 	userID := c.Sender().ID
-	stateMutex.Lock()                   // блокируемся, если несколько человек пользуются ботом
+	stateMutex.Lock() // блокируемся, если несколько человек пользуются ботом
 	defer stateMutex.Unlock()
 
-	state, exists := userStates[userID] // проверяем, есть ли викторина
-	if !exists {                        // если викторины нет выводим сообщение и завершаем
-		return logger.SendWithLogError(c, answer.HandleGoStartQuiz)
+	state, err := handleTextCheckingQuiz(c, userID)
+	if err != nil {
+		return err
 	}
 
 	// state.CurrentIndex - номер текущего слова
@@ -85,7 +109,6 @@ func HandleText(c tele.Context) error {
 	// Если все слова закончились, предлагаем начать заново
 	if state.CurrentIndex >= len(state.WordPairs) {
 		delete(userStates, userID)
-		// stateMutex.Unlock() // Разблокируем мьютекс, если викторина завершена
 		return logger.SendWithLogError(c, answer.HandleGoEndQuiz)
 	}
 
@@ -105,8 +128,6 @@ func HandleText(c tele.Context) error {
 	} else {
 		_ = logger.SendWithLogError(c, "Неправильно!\nПравильный ответ: " + currentPair.Translate)
 	}
-	// stateMutex.Lock() // Блокируемся, чтобы безопасно изменить данные викторины (например, перейти к следующему слову)
-	// defer stateMutex.Unlock()
 
 	state.CurrentIndex++ // Увеличиваем номер слова на 1, чтобы перейти к следующему слову
 	// Проверяем, остались ли еще слова в викторине
@@ -116,6 +137,15 @@ func HandleText(c tele.Context) error {
 	}
 
 	// Если не остались
-	delete(userStates, userID) // То удаляем данные викторины этого пользователя, чтобы не занимать место
+	// delete(userStates, userID) // То удаляем данные викторины этого пользователя, чтобы не занимать место
 	return logger.SendWithLogError(c, answer.HandleGoRepeatQuiz)
+}
+
+func handleTextCheckingQuiz(c tele.Context, userID int64) (*QuizState, error) {
+	state, exists := userStates[userID] // проверяем, есть ли викторина
+	if !exists {                        // если викторины нет выводим сообщение и завершаем
+		return nil, logger.SendWithLogError(c, answer.HandleGoStartQuiz)
+	}
+
+	return state, nil
 }
